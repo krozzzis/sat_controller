@@ -1,5 +1,4 @@
 #include "Controller.h"
-#include "Params.h"
 
 #include <climits>
 #include <iostream>
@@ -10,7 +9,7 @@ int main(int argc, char **argv) {
   StartupParams params;
   std::cin >> params;
 
-  Controller controller;
+  Controller controller(params);
   for (int i = 0; i < MAX_ITERATIONS; i++) {
     StepParams params;
     std::cin >> params;

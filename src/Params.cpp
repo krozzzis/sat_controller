@@ -11,6 +11,11 @@ std::istream &operator>>(std::istream &cin, StepParams &params) {
   return cin;
 }
 
+std::ostream &operator<<(std::ostream &out, const StepParams &result) {
+    out << "Time: " << result.time << " Pos: " << result.position << " Vel: " << result.velocity << " Fuel: " << result.free_fuel;
+    return out;
+}
+
 StepResult::StepResult(Vec2 v, bool f) {
   velocity = v;
   finish = f;

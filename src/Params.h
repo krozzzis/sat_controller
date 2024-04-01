@@ -34,6 +34,7 @@ public:
   double free_fuel;
 
   friend std::istream &operator>>(std::istream &cin, StepParams &params);
+  friend std::ostream &operator<<(std::ostream &out, const StepParams &result);
 };
 
 /// Параметры действия спутника по результату моделирования шага контроллером.
