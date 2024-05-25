@@ -3,10 +3,11 @@
 #include "Params.h"
 
 enum ControllerState {
-  INITIAL_STATE = 0,
-  WAIT_FOR_FIRST_IMPULSE = 1,
-  WAIT_FOR_SECOND_IMPULSE = 2,
-  END = 3,
+    INITIAL_STATE = 0,
+    WAIT_FOR_FIRST_IMPULSE = 1,
+    WAIT_FOR_SECOND_IMPULSE = 2,
+    WAIT_FOR_THIRD_IMPULSE = 3,
+    END = 4,
 };
 
 enum Task {
@@ -19,29 +20,30 @@ enum Task {
 /// Основной класс контроллера спутника.
 class Controller {
 private:
-  // TODO: заменить на нормальные параметры
-  StartupParams st_params;
+    // TODO: заменить на нормальные параметры
+    StartupParams st_params;
 
-  double start_orbit_radius;
+    double start_orbit_radius;
 
-  double earth_mass;
-  double earth_radius;
-  double g;
-  double first_impulse_speed;
-  double second_impulse_speed;
-  Vec2 previous_pos;
-  Vec2 first_pos;
-  Task task;
-  ControllerState state;
+    double earth_mass;
+    double earth_radius;
+    double g;
+    double first_impulse_speed;
+    double second_impulse_speed;
+    double third_impulse_speed;
+    Vec2 previous_pos;
+    Vec2 first_pos;
+    Task task;
+    ControllerState state;
 
-  double normalize_angle(double angle);
-  double angle_diff(double angle1, double angle2);
-  bool is_between(Vec2 a, Vec2 b, Vec2 c);
+    double normalize_angle(double angle);
+    double angle_diff(double angle1, double angle2);
+    bool is_between(Vec2 a, Vec2 b, Vec2 c);
 
 public:
-  Controller(StartupParams params);
+    Controller(StartupParams params);
 
-  /// Рассчитывает следующее действие спутника на основе переданных данных о
-  /// текущем состоянии. Вызывается на каждом шагу.
-  StepResult calculate_step(StepParams params);
+    /// Рассчитывает следующее действие спутника на основе переданных данных о
+    /// текущем состоянии. Вызывается на каждом шагу.
+    StepResult calculate_step(StepParams params);
 };
