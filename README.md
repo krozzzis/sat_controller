@@ -2,12 +2,15 @@
 
 ## Сборка
 ### Linux
-Зависимости: `cmake>=3.23`
+Зависимости: `cmake>=3.01`
 
 ```cpp
 cmake .
 cmake --build .
 ```
+
+### Windows
+¯\_( ͡❛ ͜ʖ ͡❛)_/¯
 
 ## Запуск
 
@@ -31,3 +34,6 @@ cmake --build .
 ```cpp
 ./bin/satcontroller
 ```
+
+### Windows
+¯\_( ͡❛ ͜ʖ ͡❛)_/¯
