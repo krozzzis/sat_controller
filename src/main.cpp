@@ -5,8 +5,6 @@
 #include <cmath>
 #include <complex>
 
-#define DEBUG
-
 const size_t MAX_ITERATIONS = INT_MAX;
 
 const double earth_m = 6e24;
@@ -14,16 +12,6 @@ const double earth_r = 6.357e6;
 const double g = 6.6743e-11;
 
 using complex = std::complex<double>;
-
-void log(size_t time, std::string message) {
-    #ifdef DEBUG
-    std::ofstream file;
-    file.open("log.txt", std::ios::app);
-    file << "[" << time << "] ";
-    file << message << std::endl;
-    file.close();
-    #endif // DEBUG
-}
 
 double normalize_angle(double angle) {
     angle = fmod(angle, M_PI * 2);
@@ -68,7 +56,6 @@ public:
     std::vector<CheckPoint> points; // Ключевые точки маршрута
 
     bool simulation(double x, double y, double vvx, double vvy, size_t t, std::vector<CheckPoint> &points, double target_angle, size_t target_time, double &new_x, double &new_y, double &new_vx, double &new_vy, size_t &new_t) {
-        std::ofstream file("sim.txt", std::ios::trunc);
         while (t < 30000) {
             double r = sqrt(x*x + y*y);
 
@@ -89,8 +76,6 @@ public:
 
             double ax = dvx + fx;
             double ay = dvy + fy;
-
-            //file << t << " " << x << ", " << y << ", " << vvx << ", " << vvy << ", fx: " << fx << ", fy: " << fy << ", r: " << r << ", ax: " << ax << ", ay: " << ay << std::endl;
 
             double sx_new = x + vvx + 0.5 * ax;
             double sy_new = y + vvy + 0.5 * ay;
@@ -117,19 +102,15 @@ public:
                 new_vx = vvx;
                 new_vy = vvy;
                 new_t = t;
-                file.close();
                 return true;
             }
         }
-        file.close();
 
         return false;
     }
 
     // Рассчет ключевых точек маршрута
     void calculate_script() {
-        log(time, "Calculating script");
-
         double time_gap = 100000;
         double new_x, new_y, new_vx, new_vy;
 
@@ -150,38 +131,50 @@ public:
         double impulse_speed1 = initial_orbit_speed * (initial_orbit_speed / vp - 1);
         double impulse_speed2 = target_orbit_speed * (1 - target_orbit_speed / vp);
 
-        // Моделирование движение основного спутника для рассчета позиции второго импульса
+        // Моделирование движение основного спутника для рассчета длительности гомановского перехода
         size_t impulse2_time = 0;
         std::vector<CheckPoint> pps;
         pps.push_back(CheckPoint(0, impulse_speed1, false));
         simulation(sx, sy, vx, vy, 0, pps, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, impulse2_time);
 
+        // Угловые скорости орбит
         double v1 = initial_orbit_speed / initial_orbit_radius;
         double v2 = target_orbit_speed / target_orbit_radius;
 
         complex target_sputnik_angle(tx, ty);
         complex sputnik_angle(sx, sy);
 
-        double a1 = (std::arg(sputnik_angle) - M_PI);
-        double a2 = (std::arg(target_sputnik_angle) - impulse2_time*v2);
+        // Угловое положение спутников
+        double a1 = (M_PI/2 - std::arg(sputnik_angle));
+        double a2 = (M_PI/2 - std::arg(target_sputnik_angle));
 
-        double b = 1000 / target_orbit_radius;
+        // Максимальная угловая погрешность, ~10км
+        double b = 5000 / target_orbit_radius;
 
         ff << a1 << " " << a2 << std::endl;
         ff << b << std::endl;
 
-        double t1 = (-b - (a1 - a2)) / (v1 - v2);
-        double t2 = (b - (a1 - a2)) / (v1 - v2);
+        //double t1 = (-(b) - (a1 - a2)) / (v1 - v2);
+        //double t2 = ((b) - (a1 - a2)) / (v1 - v2);
 
-        ff << t1 << " " << t2 << std::endl;
+        double u = 3.986e14;
+        // Время гомановского перехода по формуле, немного отличается от полученного через симулятор
+        double x = M_PI * sqrt(pow(initial_orbit_radius + target_orbit_radius, 3) / (8 * u));
 
-        if (t1 > 0)
-            time_gap = fabs(t1);
-        else
-            time_gap = fabs(t2);
+        ff << "TIME: " << x << " " << impulse2_time << std::endl;
 
-        if (time_gap < 0) {
-            time_gap += M_PI * 2 / v2;
+        // Моделирование необходимой задержки перед переходом
+        for (int t = 0; t < 70000; t++) {
+            double aa1 = normalize_angle(a1 + v1 * t + M_PI);
+            double aa2 = normalize_angle(a2 + v2 * t + x*v2);
+            double gg = fabs((aa1) - (aa2));
+            if (gg > M_PI) {
+                gg = 2 * M_PI - gg;
+            }
+            if (gg < b) {
+                time_gap = t;
+                break;
+            }
         }
 
         points.push_back(CheckPoint(time_gap, impulse_speed1, false));
@@ -201,14 +194,11 @@ public:
     }
 
     bool check_point() {
-        log(time, "Checking current position");
-
         for (int i = 0; i < points.size(); ++i) {
             CheckPoint point = points[i];
 
             // Если мы находимся в контрольной точке, то делаем импульс
             if (point.time == time) {
-                log(time, "Checkpoint!");
                 made_impulse(point.force);
 
                 // Если контрольная точка финишная, то даем сигнал завершить программу
@@ -223,7 +213,6 @@ public:
     }
 
     void made_impulse(double force) {
-        log(time, "Made impulse");
         double ddd = sqrt(vx*vx + vy*vy);
         double dx = vx / ddd;
         double dy = vy / ddd;
@@ -234,12 +223,6 @@ public:
 
 
 int main(int argc, char **argv) {
-    #ifdef DEBUG
-    // Clear log file
-    std::ofstream file("log.txt", std::ios::trunc);
-    file.close();
-    #endif // DEBUG
-
     SatelliteState state;
     std::cin >> state.fuel;
 
