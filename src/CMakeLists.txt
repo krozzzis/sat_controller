@@ -10,12 +10,5 @@ set(CMAKE_CXX_FLAGS "-static-libgcc -static-libstdc++ -static")
 
 add_executable(satcontroller main.cpp)
 
-add_library(Controller Controller.cpp)
-add_library(Params Params.cpp)
-add_library(Vec Vec.cpp)
-
 target_link_libraries(
-  satcontroller
-  PRIVATE Controller
-          Params
-          Vec)
+  satcontroller)
