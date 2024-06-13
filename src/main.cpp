@@ -8,8 +8,8 @@
 const size_t MAX_ITERATIONS = INT_MAX;
 
 const double earth_m = 6e24;
-const double earth_r = 6.357e6;
 const double g = 6.6743e-11;
+const double u = 3.986e14;
 
 using complex = std::complex<double>;
 
@@ -114,7 +114,8 @@ public:
         double time_gap = 100000;
         double new_x, new_y, new_vx, new_vy;
 
-        std::ofstream ff("impulses.txt", std::ios::trunc);
+        complex target_sputnik_angle(tx, ty);
+        complex sputnik_angle(sx, sy);
 
         target.a = sqrt(tx*tx + ty*ty);
         target.e = 0.0;
@@ -137,60 +138,67 @@ public:
         pps.push_back(CheckPoint(0, impulse_speed1, false));
         simulation(sx, sy, vx, vy, 0, pps, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, impulse2_time);
 
+        std::vector<CheckPoint> noll;
+        size_t pi_time1 = 0;
+        size_t pi_time2 = 0;
+        simulation(sx, sy, vx, vy, 0, noll, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, pi_time1);
+        simulation(0.0, target_orbit_radius, target_orbit_speed, 0.0, 0, noll, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, pi_time2);
+
         // Угловые скорости орбит
         double v1 = initial_orbit_speed / initial_orbit_radius;
         double v2 = target_orbit_speed / target_orbit_radius;
 
-        complex target_sputnik_angle(tx, ty);
-        complex sputnik_angle(sx, sy);
+        double vv1 = M_PI / pi_time1;
+        double vv2 = M_PI / pi_time2;
+
 
         // Угловое положение спутников
         double a1 = (M_PI/2 - std::arg(sputnik_angle));
         double a2 = (M_PI/2 - std::arg(target_sputnik_angle));
 
         // Максимальная угловая погрешность, ~10км
-        double b = 5000 / target_orbit_radius;
+        double b = 10000 / target_orbit_radius;
 
-        ff << a1 << " " << a2 << std::endl;
-        ff << b << std::endl;
-
-        //double t1 = (-(b) - (a1 - a2)) / (v1 - v2);
-        //double t2 = ((b) - (a1 - a2)) / (v1 - v2);
-
-        double u = 3.986e14;
         // Время гомановского перехода по формуле, немного отличается от полученного через симулятор
         double x = M_PI * sqrt(pow(initial_orbit_radius + target_orbit_radius, 3) / (8 * u));
 
-        ff << "TIME: " << x << " " << impulse2_time << std::endl;
-
         // Моделирование необходимой задержки перед переходом
         for (int t = 0; t < 70000; t++) {
-            double aa1 = normalize_angle(a1 + v1 * t + M_PI);
-            double aa2 = normalize_angle(a2 + v2 * t + x*v2);
+            double aa1 = normalize_angle(a1 + vv1 * t + M_PI);
+            double aa2 = normalize_angle(a2 + vv2 * t + impulse2_time*vv2);
             double gg = fabs((aa1) - (aa2));
             if (gg > M_PI) {
                 gg = 2 * M_PI - gg;
             }
             if (gg < b) {
-                time_gap = t;
-                break;
+                if (t < time_gap)
+                    time_gap = t;
+                else
+                    break;
             }
         }
 
+        size_t t = time_gap;
+        size_t rb;
+        for (int i = time_gap-10; i <= time_gap+10; i++) {
+            std::vector<CheckPoint> r;
+            r.push_back(CheckPoint(i, impulse_speed1, false));
+            r.push_back(CheckPoint(impulse2_time + i, impulse_speed2, false));
+            simulation(sx, sy, vx, vy, 0, r, 0, impulse2_time + i + 50, new_x, new_y, new_vx, new_vy, rb);
+            double xx1 = new_x, yy1 = new_y;
+            simulation(tx, ty, tvx, tvy, 0, noll, 0, impulse2_time + i + 50, new_x, new_y, new_vx, new_vy, rb);
+            double xx2 = new_x, yy2 = new_y;
+
+            double dist = sqrt((xx2 - xx1)*(xx2 - xx1) + (yy2 - yy1)*(yy2 - yy1));
+            if (dist < 20000) {
+                t = i;
+            }
+        }
+        time_gap = t;
+
         points.push_back(CheckPoint(time_gap, impulse_speed1, false));
-        //points.push_back(CheckPoint(time_gap, 0, true));
-        points.push_back(CheckPoint(impulse2_time + time_gap, impulse_speed2, true));
-
-
-        ff << "Impulse 1" << std::endl;
-        ff << "Time: " << time_gap << std::endl;
-        ff << "Force: " << impulse_speed1 << std::endl;
-
-        ff << "Impulse 2" << std::endl;
-        ff << "Time: " << impulse2_time + time_gap << std::endl;
-        ff << "Force: " << impulse_speed2 << std::endl;
-
-        ff.close();
+        points.push_back(CheckPoint(impulse2_time + time_gap, impulse_speed2, false));
+        points.push_back(CheckPoint(impulse2_time + time_gap + 50, 0.0, true));
     }
 
     bool check_point() {
