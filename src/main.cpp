@@ -1,259 +1,323 @@
 #include <climits>
 #include <iostream>
-#include <fstream>
-#include <vector>
 #include <cmath>
-#include <complex>
 
-const size_t MAX_ITERATIONS = INT_MAX;
+#define _USE_MATH_DEFINES // for C++
 
-const double earth_m = 6e24;
-const double g = 6.6743e-11;
-const double u = 3.986e14;
-
-using complex = std::complex<double>;
+#define M_PI 3.14159265358979323846
 
 double normalize_angle(double angle) {
-    angle = fmod(angle, M_PI * 2);
+    angle = fmod(angle, 360);
     if (angle < 0)
-        angle += M_PI * 2;
+      angle += 360;
     return angle;
-}
+  }
 
-class CheckPoint {
+  double angle_diff(double angle1, double angle2) {
+    double a = fabs(angle1 - angle2);
+    double b = fabs(360 - angle1 - angle2);
+    if (a >= b)
+      return b;
+    else
+      return a;
+  }
+
+  
+
+class Vec2 {
 public:
-    size_t time;
-    double force;
-    bool finish;
+  double x, y;
 
-    CheckPoint(size_t _time, double _force, bool _finish) {
-        time = _time;
-        force = _force;
-        finish = _finish;
-    }
+  Vec2() {
+    x = 0.0;
+    y = 0.0;
+  }
+
+  Vec2(double _x, double _y) {
+    x = _x;
+    y = _y;
+  }
+
+  double length() {
+    return sqrt(x*x + y*y);
+  }
+
+  Vec2 normalized() {
+    return *this / length();
+  }
+
+  static double cross(Vec2 a, Vec2 b) {
+    return a.x * b.y - b.x * a.y;
+  }
+
+  double dot(Vec2 a, Vec2 b) {
+    return a.x * b.x + a.y * b.y;
+  }
+
+  friend std::istream &operator>>(std::istream &cin, Vec2 &vec) {
+    cin >> vec.x >> vec.y;
+    return cin;
+  }
+
+  friend std::ostream &operator<<(std::ostream &out, const Vec2 &vec) {
+    out << vec.x << std::endl;
+    out << vec.y;
+    return out;
+  }
+
+  Vec2 operator/(const double &rhs) {
+    return Vec2(x / rhs, y / rhs);
+  }
+
+  Vec2 operator*(const double &rhs) {
+    return Vec2(x * rhs, y * rhs);
+  }
 };
 
-class Orbit {
+bool is_between(Vec2 a, Vec2 b, Vec2 c) {
+    double ba = Vec2::cross(b, a);
+    double bc = Vec2::cross(b, c);
+    return std::signbit(ba) != std::signbit(bc) && angle_diff(atan2(c.y, c.x), atan2(b.y, b.x)) < 1;
+  }
+
+/// Параметры, передаваемые в программу через стандартный поток во время старта
+/// программы.
+class StartupParams {
 public:
-    double e; // Эксцентриситет
-    double a; // Большая полуось, м
-    double tilt; // Наклон, град.
+  /// Большая полуось эллипса конечной орбиты в метрах.
+  double semi_major_axis;
+  /// Эксцентриситет эллипса конечной орбиты в метрах. Равен нулю, если конечная
+  /// орбита круглая.
+  double eccentricity;
+  /// Угол наклона большой оси эллипса конечной орбиты относительно оси Ox в
+  /// градусах от 0 до 90.
+  double orbit_pitch;
+  /// Запас имеющегося топлива в виде потенциального запаса изменения скорости.
+  double fuel_capacity;
+
+  friend std::istream &operator>>(std::istream &cin, StartupParams &params) {
+    cin >> params.semi_major_axis >> params.eccentricity >> params.orbit_pitch >>
+        params.fuel_capacity;
+    return cin;
+  }
 };
 
-class SatelliteState {
+/// Параметры, передаваемые в программу через стандартный поток на каждом шагу
+/// моделирования.
+class StepParams {
 public:
-    size_t time; // Прошедшее время с начала моделирования до текущего момента, с
-    double sx, sy; // Текущее положение спутника, м
-    double vx, vy; // Текущий вектор скорости спутника, м/с
-    double fuel; // Текущий запас топлива спутника
+  /// Время в секундах от начала моделирования.
+  int time;
+  /// Текущие координаты спутника.
+  Vec2 position;
+  /// Вектор скорости спутника.
+  Vec2 velocity;
+  /// Запас оставщегося топлива в виде потенциального запаса изменения скорости.
+  double free_fuel;
 
-    size_t t_count; // Количество спутников-целей
-    double tx, ty; // Текущее положение спутника-цели
-    double tvx, tvy; // Текущий вектор скорости спутника-цели
+  friend std::istream &operator>>(std::istream &cin, StepParams &params) {
+    cin >> params.time >> params.position >> params.velocity >> params.free_fuel;
+    return cin;
+  }
 
-    Orbit target; // Параметры целевой орбиты
-
-    std::vector<CheckPoint> points; // Ключевые точки маршрута
-
-    bool simulation(double x, double y, double vvx, double vvy, size_t t, std::vector<CheckPoint> &points, double target_angle, size_t target_time, double &new_x, double &new_y, double &new_vx, double &new_vy, size_t &new_t) {
-        while (t < 30000) {
-            double r = sqrt(x*x + y*y);
-
-            double f = g * earth_m / r / r;
-            double fx = -f * x / r;
-            double fy = -f * y / r;
-
-            double dvx = 0.0;
-            double dvy = 0.0;
-
-            for (int i = 0; i < points.size(); ++i) {
-                if (points[i].time == t) {
-                    double vvv = sqrt(vvx*vvx + vvy*vvy);
-                    dvx = points[i].force * vvx / vvv;
-                    dvy = points[i].force * vvy / vvv;
-                }
-            }
-
-            double ax = dvx + fx;
-            double ay = dvy + fy;
-
-            double sx_new = x + vvx + 0.5 * ax;
-            double sy_new = y + vvy + 0.5 * ay;
-
-            double r_new = sqrt(sx_new * sx_new + sy_new * sy_new);
-            double f_new = g * earth_m / r_new / r_new;
-            double fx_new = -f_new * sx_new / r_new;
-            double fy_new = -f_new * sy_new / r_new;
-
-            double vx_new = vvx + (dvx + (fx + fx_new) / 2) * 1.0;
-            double vy_new = vvy + (dvy + (fy + fy_new) / 2) * 1.0;
-
-            x = sx_new;
-            y = sy_new;
-            vvx = vx_new;
-            vvy = vy_new;
-
-            t += 1;
-
-            double angle = atan2(y, x);
-            if ((angle < target_angle && target_time == -1) || (t == target_time)) {
-                new_x = x;
-                new_y = y;
-                new_vx = vvx;
-                new_vy = vvy;
-                new_t = t;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    // Рассчет ключевых точек маршрута
-    void calculate_script() {
-        double time_gap = 100000;
-        double new_x, new_y, new_vx, new_vy;
-
-        complex target_sputnik_angle(tx, ty);
-        complex sputnik_angle(sx, sy);
-
-        target.a = sqrt(tx*tx + ty*ty);
-        target.e = 0.0;
-        target.tilt = 0.0;
-
-        double initial_orbit_radius = sqrt(sx*sx + sy*sy);
-        double initial_orbit_speed = sqrt(g * earth_m * (2 / initial_orbit_radius - 1 / initial_orbit_radius));
-
-        double target_orbit_radius = target.a + target.e * target.a;
-        double target_orbit_speed = sqrt(g * earth_m * (2 / target_orbit_radius - 1 / target_orbit_radius));
-
-        double vp = sqrt((initial_orbit_speed*initial_orbit_speed + target_orbit_speed*target_orbit_speed) / 2);
-
-        double impulse_speed1 = initial_orbit_speed * (initial_orbit_speed / vp - 1);
-        double impulse_speed2 = target_orbit_speed * (1 - target_orbit_speed / vp);
-
-        // Моделирование движение основного спутника для рассчета длительности гомановского перехода
-        size_t impulse2_time = 0;
-        std::vector<CheckPoint> pps;
-        pps.push_back(CheckPoint(0, impulse_speed1, false));
-        simulation(sx, sy, vx, vy, 0, pps, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, impulse2_time);
-
-        std::vector<CheckPoint> noll;
-        size_t pi_time1 = 0;
-        size_t pi_time2 = 0;
-        simulation(sx, sy, vx, vy, 0, noll, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, pi_time1);
-        simulation(0.0, target_orbit_radius, target_orbit_speed, 0.0, 0, noll, -M_PI/2, -1, new_x, new_y, new_vx, new_vy, pi_time2);
-
-        // Угловые скорости орбит
-        double v1 = initial_orbit_speed / initial_orbit_radius;
-        double v2 = target_orbit_speed / target_orbit_radius;
-
-        double vv1 = M_PI / pi_time1;
-        double vv2 = M_PI / pi_time2;
-
-
-        // Угловое положение спутников
-        double a1 = (M_PI/2 - std::arg(sputnik_angle));
-        double a2 = (M_PI/2 - std::arg(target_sputnik_angle));
-
-        // Максимальная угловая погрешность, ~10км
-        double b = 10000 / target_orbit_radius;
-
-        // Время гомановского перехода по формуле, немного отличается от полученного через симулятор
-        double x = M_PI * sqrt(pow(initial_orbit_radius + target_orbit_radius, 3) / (8 * u));
-
-        // Моделирование необходимой задержки перед переходом
-        for (int t = 0; t < 70000; t++) {
-            double aa1 = normalize_angle(a1 + vv1 * t + M_PI);
-            double aa2 = normalize_angle(a2 + vv2 * t + impulse2_time*vv2);
-            double gg = fabs((aa1) - (aa2));
-            if (gg > M_PI) {
-                gg = 2 * M_PI - gg;
-            }
-            if (gg < b) {
-                if (t < time_gap)
-                    time_gap = t;
-                else
-                    break;
-            }
-        }
-
-        size_t t = time_gap;
-        size_t rb;
-        for (int i = time_gap-10; i <= time_gap+10; i++) {
-            std::vector<CheckPoint> r;
-            r.push_back(CheckPoint(i, impulse_speed1, false));
-            r.push_back(CheckPoint(impulse2_time + i, impulse_speed2, false));
-            simulation(sx, sy, vx, vy, 0, r, 0, impulse2_time + i + 50, new_x, new_y, new_vx, new_vy, rb);
-            double xx1 = new_x, yy1 = new_y;
-            simulation(tx, ty, tvx, tvy, 0, noll, 0, impulse2_time + i + 50, new_x, new_y, new_vx, new_vy, rb);
-            double xx2 = new_x, yy2 = new_y;
-
-            double dist = sqrt((xx2 - xx1)*(xx2 - xx1) + (yy2 - yy1)*(yy2 - yy1));
-            if (dist < 20000) {
-                t = i;
-            }
-        }
-        time_gap = t;
-
-        points.push_back(CheckPoint(time_gap, impulse_speed1, false));
-        points.push_back(CheckPoint(impulse2_time + time_gap, impulse_speed2, false));
-        points.push_back(CheckPoint(impulse2_time + time_gap + 50, 0.0, true));
-    }
-
-    bool check_point() {
-        for (int i = 0; i < points.size(); ++i) {
-            CheckPoint point = points[i];
-
-            // Если мы находимся в контрольной точке, то делаем импульс
-            if (point.time == time) {
-                made_impulse(point.force);
-
-                // Если контрольная точка финишная, то даем сигнал завершить программу
-                return point.finish;
-            }
-        }
-
-        made_impulse(0.0);
-
-        // Если не находимся ни в одной контрольной точке, то ничего не делаем
-        return false;
-    }
-
-    void made_impulse(double force) {
-        double ddd = sqrt(vx*vx + vy*vy);
-        double dx = vx / ddd;
-        double dy = vy / ddd;
-        std::cout << dx * force << std::endl;
-        std::cout << dy * force << std::endl;
-    }
+  friend std::ostream &operator<<(std::ostream &out, const StepParams &result) {
+      out << "Time: " << result.time << " Pos: " << result.position << " Vel: " << result.velocity << " Fuel: " << result.free_fuel;
+      return out;
+  }
 };
 
+/// Параметры действия спутника по результату 
+/// моделирования шага контроллером.
+class StepResult {
+public:
+  /// Требуемые изменения вектора скорости спутника.
+  Vec2 velocity;
+  /// Признак завершения работы.
+  bool finish;
+
+  StepResult(Vec2 v, bool f) {
+    velocity = v;
+    finish = f;
+  }
+
+  friend std::ostream &operator<<(std::ostream &out, const StepResult &result) {
+    out << result.velocity << std::endl;
+    out << (int)result.finish;
+    return out;
+  }
+};
+
+
+
+enum ControllerState {
+  INITIAL_STATE = 0,
+  WAIT_FOR_FIRST_IMPULSE = 1,
+  WAIT_FOR_SECOND_IMPULSE = 2,
+  WAIT_FOR_THIRD_IMPULSE = 3,
+  END = 4,
+};
+
+enum Task {
+  TASK_ZERO = 0,
+  TASK_ONE = 1,
+  TASK_TWO = 2,
+  TASK_THREE = 3,
+};
+
+/// Основной класс контроллера спутника.
+class Controller {
+private:
+  StartupParams st_params;
+
+    double start_orbit_radius;
+
+    double earth_mass;
+    double earth_radius;
+    double g;
+    double first_impulse_speed;
+    double second_impulse_speed;
+    double third_impulse_speed;
+    Vec2 previous_pos;
+    Vec2 first_pos;
+    Task task;
+    ControllerState state;
+
+public:
+  Controller(StartupParams params) {
+    st_params = params;
+    start_orbit_radius = 0.0;
+    earth_mass = 6e24;
+    earth_radius = 6.357e6;
+    g = 6.6743e-11;
+    first_impulse_speed = 0.0;
+    second_impulse_speed = 0.0;
+    third_impulse_speed = 0.0;
+    previous_pos = Vec2();
+    first_pos = Vec2();
+
+    if (params.eccentricity > 0.001) {
+      if ((1 - st_params.eccentricity) * st_params.semi_major_axis == start_orbit_radius) {
+        task = TASK_ZERO;
+      } else {
+        task = TASK_TWO;
+      }
+    } else {
+      task = TASK_ONE;
+    }
+
+    state = ControllerState::INITIAL_STATE;
+  }
+
+  /// Рассчитывает следующее действие спутника на основе переданных данных о
+  /// текущем состоянии. Вызывается на каждом шагу.
+  StepResult calculate_step(StepParams params) {
+    Vec2 result_impulse;
+    bool complete = false;
+    double new_radius1 = 0, new_radius2 = 0, radius_ratio1 = 0, radius_ratio2 = 0, initial_orbit_speed = 0, new_orbit_speed = 0, current_angle = 0, required_angle = 0;
+    double angle1 = 0, angle2 = 0, angle3 = 0, angle4 = 0;
+    current_angle = normalize_angle(atan2(params.position.y, params.position.x) * 180 / M_PI);
+
+    angle1 = normalize_angle(st_params.orbit_pitch + 180);
+    angle2 = normalize_angle(st_params.orbit_pitch);
+    angle3 = normalize_angle(st_params.orbit_pitch + 180);
+
+    switch (state) {
+      case INITIAL_STATE:
+        start_orbit_radius = params.position.length();
+        previous_pos = params.position;
+        first_pos = params.position;
+
+        if (task == TASK_TWO) {
+          new_radius1 = st_params.semi_major_axis - st_params.eccentricity * st_params.semi_major_axis;
+          new_radius2 = st_params.eccentricity * st_params.semi_major_axis + st_params.semi_major_axis;
+        } else if (task == TASK_ZERO || task ==  TASK_ONE) {
+          new_radius1 = st_params.eccentricity * st_params.semi_major_axis + st_params.semi_major_axis;
+          new_radius2 = 0;
+        }
+        radius_ratio1 = new_radius1 / start_orbit_radius;
+        radius_ratio2 = new_radius2 / new_radius1;
+        initial_orbit_speed = sqrt(g * earth_mass * (2 / (start_orbit_radius)- 1 / start_orbit_radius));
+        new_orbit_speed = sqrt(g * earth_mass * (2 / (new_radius1)- 1 / new_radius1));
+
+        // Рассчет Гомановской траектории https://en.wikipedia.org/wiki/Hohmann_transfer_orbit
+        first_impulse_speed = initial_orbit_speed * (sqrt(2 * radius_ratio1 / (radius_ratio1 + 1)) - 1);
+        second_impulse_speed = initial_orbit_speed * (1 / sqrt(radius_ratio1)) * (1 - sqrt(2 / (radius_ratio1 + 1)));
+        third_impulse_speed = new_orbit_speed * (sqrt(2 * radius_ratio2 / (radius_ratio2 + 1)) - 1);
+
+        state = WAIT_FOR_FIRST_IMPULSE;
+
+      case WAIT_FOR_FIRST_IMPULSE:
+        required_angle = angle1;
+        // Определение положения в перицентре
+        if (is_between(previous_pos, Vec2(cos(required_angle / 180 * M_PI), sin(required_angle / 180 * M_PI)), params.position)) {
+          result_impulse = params.velocity.normalized() * first_impulse_speed;
+
+          if (task == TASK_ZERO)
+            complete = true;
+
+          state = WAIT_FOR_SECOND_IMPULSE;
+        }
+        break;
+
+      case WAIT_FOR_SECOND_IMPULSE: {
+        required_angle = angle2;
+
+        if (task == TASK_ZERO || task == TASK_TWO)
+          required_angle = normalize_angle(st_params.orbit_pitch);
+        else if (task == TASK_ONE)
+          required_angle = normalize_angle(atan2(first_pos.y, first_pos.x) * 180 / M_PI + 180);
+
+
+        if (is_between(previous_pos, Vec2(cos(required_angle / 180 * M_PI), sin(required_angle / 180 * M_PI)), params.position)) {
+          result_impulse = params.velocity.normalized() * second_impulse_speed;
+
+          if (task == TASK_ONE)
+            complete = true;
+
+          state = WAIT_FOR_THIRD_IMPULSE;
+        }
+      } break;
+
+      case WAIT_FOR_THIRD_IMPULSE:
+        required_angle = angle3;
+
+        if (is_between(previous_pos, Vec2(cos(required_angle / 180 * M_PI), sin(required_angle / 180 * M_PI)), params.position)) {
+          result_impulse = params.velocity.normalized() * third_impulse_speed;
+
+          if (task == TASK_TWO)
+            complete = true;
+
+          state = END;
+        }
+        break;
+    }
+
+    previous_pos = params.position;
+    return StepResult(result_impulse, complete);
+  }
+};
+
+
+
+
+const int MAX_ITERATIONS = INT_MAX;
 
 int main(int argc, char **argv) {
-    SatelliteState state;
-    std::cin >> state.fuel;
+  StartupParams params;
+  std::cin >> params;
 
-    for (int i = 0; i < MAX_ITERATIONS; i++) {
-        std::cin >> state.time;
-        std::cin >> state.sx >> state.sy;
-        std::cin >> state.vx >> state.vy;
-        std::cin >> state.fuel;
-        std::cin >> state.t_count;
-        std::cin >> state.tx >> state.ty;
-        std::cin >> state.tvx >> state.tvy;
+  Controller controller(params);
+  for (int i = 0; i < MAX_ITERATIONS; i++) {
+    StepParams params;
+    std::cin >> params;
 
-        if (i == 0) {
-            state.calculate_script();
-        }
+    StepResult result = controller.calculate_step(params);
+    std::cout << result << std::endl;
 
-        if (state.check_point()) {
-            std::cout << "1" << std::endl;
-            break;
-        } else {
-            std::cout << "0" << std::endl;
-        }
+    if (result.finish == true) {
+      break;
     }
+  }
 
-    return 0;
+  return 0;
 }
